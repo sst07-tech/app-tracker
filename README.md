@@ -1,4 +1,4 @@
-# app-tracker# app-tracker
+# app-tracker
 
 NestJS API on AWS App Runner + React (Vite) UI on AWS Amplify • DynamoDB storage • Terraform IaC
 A simple job-application tracker to showcase end-to-end skills: polished React UI, typed NestJS API, AWS infra with least-privilege IAM, and a clean Terraform setup.
