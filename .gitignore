@@ -1,24 +1,67 @@
-# Nestjs specific
-/dist
-/node_modules
-/build
-/tmp
+# Node / Monorepo
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+.vite/
+**/.vite/
+.parcel-cache/
+**/.parcel-cache/
+.next/
+.nuxt/
+.cache/
+**/.cache/
+.turbo/
+**/.turbo/
+
+# NestJS / project temp
+tmp/
+**/tmp/
 
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
-pnpm-debug.log*
 yarn-debug.log*
-yarn-error.log*
+pnpm-debug.log*
 lerna-debug.log*
 
-# dotenv environment variable files
+# Env files
 .env
-.env.development
-.env.test
-.env.production
+.env.*
+!.env.example
 
-# temp directory
-.temp
-.tmp
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Coverage / test outputs
+coverage/
+.nyc_output/
+.junit/
+.tap/
+.cypress/
+
+# Docker (optional)
+*.local.dockerignore
+docker-compose.override.yml
+
+# Terraform
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.crash.log
+.terraform.lock.hcl
+infra/tfplan
+
+# SAM / CDK
+.aws-sam/
+cdk.out/
