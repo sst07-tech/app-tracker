@@ -1,129 +1,188 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { v4 as uuidv4 } from "uuid";
+import * as crypto from "crypto";
 import {
-  PutCommand,
-  GetCommand,
-  UpdateCommand,
   DeleteCommand,
+  GetCommand,
+  PutCommand,
   QueryCommand,
-  ScanCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { DynamoService } from "../aws/dynamo.service";
-import { CreateApplicationDto } from "./dto/create-application.dto";
-import { UpdateApplicationDto } from "./dto/update-application.dto";
 
-const USER_ID = "demo-user"; // single-tenant demo
+type ApplicationStatus =
+  | "Applied"
+  | "Interview"
+  | "Offer"
+  | "Rejected"
+  | "On Hold";
+
+export interface ApplicationItem {
+  pk: string; // USER#<sub>
+  sk: string; // APP#<appId>
+  appId: string;
+  company: string;
+  role: string;
+  status: ApplicationStatus;
+  appliedOn?: string; // ISO date
+  notes?: string;
+  resumeUrl?: string;
+}
+
+export interface CreateApplicationDto {
+  company: string;
+  role: string;
+  status?: ApplicationStatus;
+  appliedOn?: string;
+  notes?: string;
+  resumeUrl?: string;
+}
+
+export interface UpdateApplicationDto {
+  company?: string;
+  role?: string;
+  status?: ApplicationStatus;
+  appliedOn?: string;
+  notes?: string;
+  resumeUrl?: string;
+}
 
 @Injectable()
 export class ApplicationsService {
   constructor(private readonly dynamo: DynamoService) {}
 
-  async create(dto: CreateApplicationDto) {
-    const id = uuidv4();
-    const item = {
-      pk: `USER#${USER_ID}`,
-      sk: `APP#${id}`,
-      appId: id,
-      company: dto.company,
-      role: dto.role,
-      status: dto.status,
-      appliedOn: dto.appliedOn ?? new Date().toISOString().slice(0, 10),
-      notes: dto.notes ?? "",
-      resumeUrl: dto.resumeUrl ?? "",
-    };
-
-    await this.dynamo.doc.send(
-      new PutCommand({
-        TableName: this.dynamo.tableName,
-        Item: item,
-      })
-    );
-    return item;
+  private userPk(userId: string) {
+    return `USER#${userId}`;
   }
 
-  async findAll() {
-    // Query all items for the demo user
+  private appSk(appId: string) {
+    return `APP#${appId}`;
+  }
+
+  // ---------- READ LIST ----------
+  async listForUser(userId: string): Promise<ApplicationItem[]> {
     const res = await this.dynamo.doc.send(
       new QueryCommand({
         TableName: this.dynamo.tableName,
         KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
         ExpressionAttributeValues: {
-          ":pk": `USER#${USER_ID}`,
+          ":pk": this.userPk(userId),
           ":sk": "APP#",
         },
       })
     );
-    return res.Items ?? [];
+    return (res.Items || []) as ApplicationItem[];
   }
 
-  async findOne(id: string) {
+  // ---------- SIMPLE STATS ----------
+  async statsForUser(userId: string): Promise<Record<string, number>> {
+    const items = await this.listForUser(userId);
+    const counts: Record<string, number> = {};
+    for (const it of items) counts[it.status] = (counts[it.status] || 0) + 1;
+    counts.total = items.length;
+    return counts;
+  }
+
+  // ---------- READ ONE ----------
+  async getForUser(userId: string, appId: string): Promise<ApplicationItem> {
     const res = await this.dynamo.doc.send(
       new GetCommand({
         TableName: this.dynamo.tableName,
-        Key: {
-          pk: `USER#${USER_ID}`,
-          sk: `APP#${id}`,
-        },
+        Key: { pk: this.userPk(userId), sk: this.appSk(appId) },
       })
     );
     if (!res.Item) throw new NotFoundException("Application not found");
-    return res.Item;
+    return res.Item as ApplicationItem;
   }
 
-  async update(id: string, dto: UpdateApplicationDto) {
-    // Build update expression dynamically
-    const updates: string[] = [];
+  // ---------- CREATE ----------
+  async createForUser(
+    userId: string,
+    dto: CreateApplicationDto
+  ): Promise<ApplicationItem> {
+    const appId = crypto.randomUUID();
+    const item: ApplicationItem = {
+      pk: this.userPk(userId),
+      sk: this.appSk(appId),
+      appId,
+      company: dto.company,
+      role: dto.role,
+      status: (dto.status || "Applied") as ApplicationStatus,
+      appliedOn: dto.appliedOn,
+      notes: dto.notes,
+      resumeUrl: dto.resumeUrl,
+    };
+    await this.dynamo.doc.send(
+      new PutCommand({
+        TableName: this.dynamo.tableName,
+        Item: item,
+        // Optional: prevent accidental overwrite if same key exists
+        ConditionExpression:
+          "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      })
+    );
+    return item;
+  }
+
+  // ---------- UPDATE (partial) ----------
+  async updateForUser(
+    userId: string,
+    appId: string,
+    dto: UpdateApplicationDto
+  ): Promise<ApplicationItem> {
+    // Build dynamic UpdateExpression safely using placeholders
+    const setParts: string[] = [];
     const names: Record<string, string> = {};
     const values: Record<string, any> = {};
 
-    const add = (k: string, v: any) => {
-      const n = `#${k}`;
-      const m = `:${k}`;
-      names[n] = k;
-      values[m] = v;
-      updates.push(`${n} = ${m}`);
+    const setField = (key: keyof UpdateApplicationDto, attrName?: string) => {
+      const val = dto[key];
+      if (typeof val === "undefined") return;
+      const nameKey = `#${String(key)}`;
+      const valueKey = `:${String(key)}`;
+      names[nameKey] = attrName || (key as string);
+      values[valueKey] = val;
+      setParts.push(`${nameKey} = ${valueKey}`);
     };
 
-    Object.entries(dto).forEach(([k, v]) => {
-      if (v !== undefined) add(k, v);
-    });
+    setField("company");
+    setField("role");
+    setField("status");
+    setField("appliedOn");
+    setField("notes");
+    setField("resumeUrl");
 
-    if (!updates.length) return this.findOne(id);
+    if (setParts.length === 0) {
+      // Nothing to update; return current item
+      return this.getForUser(userId, appId);
+    }
 
     const res = await this.dynamo.doc.send(
       new UpdateCommand({
         TableName: this.dynamo.tableName,
-        Key: { pk: `USER#${USER_ID}`, sk: `APP#${id}` },
-        UpdateExpression: "SET " + updates.join(", "),
+        Key: { pk: this.userPk(userId), sk: this.appSk(appId) },
+        UpdateExpression: `SET ${setParts.join(", ")}`,
         ExpressionAttributeNames: names,
         ExpressionAttributeValues: values,
         ReturnValues: "ALL_NEW",
+        // Optional: ensure the item exists
+        ConditionExpression: "attribute_exists(pk) AND attribute_exists(sk)",
       })
     );
-    return res.Attributes;
+
+    if (!res.Attributes) throw new NotFoundException("Application not found");
+    return res.Attributes as ApplicationItem;
   }
 
-  async remove(id: string) {
+  // ---------- DELETE ----------
+  async deleteForUser(userId: string, appId: string): Promise<{ ok: true }> {
     await this.dynamo.doc.send(
       new DeleteCommand({
         TableName: this.dynamo.tableName,
-        Key: { pk: `USER#${USER_ID}`, sk: `APP#${id}` },
+        Key: { pk: this.userPk(userId), sk: this.appSk(appId) },
+        // Optional: ensure the item exists
+        ConditionExpression: "attribute_exists(pk) AND attribute_exists(sk)",
       })
     );
     return { ok: true };
-  }
-
-  async stats() {
-    const items = await this.findAll();
-    const counts: Record<string, number> = {
-      Applied: 0,
-      Interview: 0,
-      Offer: 0,
-      Rejected: 0,
-    };
-    for (const it of items as any[]) {
-      if (counts[it.status] !== undefined) counts[it.status]++;
-    }
-    return counts;
   }
 }

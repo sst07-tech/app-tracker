@@ -1,41 +1,125 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
-const empty = { company: '', role: '', status: 'Applied', appliedOn: '', notes: '', resumeUrl: '' };
+export default function ApplicationForm({ onSubmit }) {
+  const [company, setCompany] = useState('');
+  const [role, setRole] = useState('');
+  const [status, setStatus] = useState('Applied');
+  const [appliedOn, setAppliedOn] = useState('');
+  const [notes, setNotes] = useState('');
+  const [resumeUrl, setResumeUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
 
-export default function ApplicationForm({ initial, onSubmit, onCancel }) {
-  const [form, setForm] = useState(empty);
-
-  useEffect(() => {
-    setForm(initial || empty);
-  }, [initial]);
-
-  const handle = (e) => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
-
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    onSubmit(form);
+    if (typeof onSubmit !== 'function') {
+      setError('Form submission error. Please refresh the page.');
+      return;
+    }
+    
+    setSaving(true);
+    setError(null);
+    
+    try {
+      await onSubmit({
+        company: company.trim(),
+        role: role.trim(),
+        status,
+        appliedOn: appliedOn || undefined,
+        notes: notes.trim() || undefined,
+        resumeUrl: resumeUrl.trim() || undefined,
+      });
+      
+      // Reset form on success
+      setCompany('');
+      setRole('');
+      setStatus('Applied');
+      setAppliedOn('');
+      setNotes('');
+      setResumeUrl('');
+    } catch (err) {
+      setError('Failed to add application. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <input name="company" value={form.company} onChange={handle} placeholder="Company" className="border rounded p-2" required />
-        <input name="role" value={form.role} onChange={handle} placeholder="Role" className="border rounded p-2" required />
+    <form onSubmit={submit} className="grid gap-4 p-6 rounded-2xl border shadow-sm bg-white">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-slate-900">Add New Application</h2>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <select name="status" value={form.status} onChange={handle} className="border rounded p-2">
-          <option>Applied</option>
-          <option>Interview</option>
-          <option>Offer</option>
-          <option>Rejected</option>
+      
+      {error && (
+        <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+          <p className="text-red-700 text-sm">{error}</p>
+        </div>
+      )}
+      <div className="grid sm:grid-cols-2 gap-3">
+        <input
+          className="border rounded-lg p-2"
+          placeholder="Company"
+          aria-label="Company"
+          value={company}
+          onChange={(e) => setCompany(e.target.value)}
+          required
+        />
+        <input
+          className="border rounded-lg p-2"
+          placeholder="Role"
+          aria-label="Role"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="grid sm:grid-cols-3 gap-3">
+        <select
+          className="border rounded-lg p-2"
+          value={status}
+          aria-label="Status"
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          {['Applied', 'Interview', 'Offer', 'Rejected', 'On Hold'].map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
         </select>
-        <input type="date" name="appliedOn" value={form.appliedOn} onChange={handle} className="border rounded p-2" />
-        <input name="resumeUrl" value={form.resumeUrl} onChange={handle} placeholder="Resume URL (optional)" className="border rounded p-2" />
+
+        <input
+          className="border rounded-lg p-2"
+          type="date"
+          aria-label="Applied on"
+          value={appliedOn}
+          onChange={(e) => setAppliedOn(e.target.value)}
+        />
+
+        <input
+          className="border rounded-lg p-2"
+          placeholder="Resume URL (optional)"
+          aria-label="Resume URL"
+          value={resumeUrl}
+          onChange={(e) => setResumeUrl(e.target.value)}
+        />
       </div>
-      <textarea name="notes" value={form.notes} onChange={handle} rows="3" placeholder="Notes" className="border rounded p-2 w-full"></textarea>
-      <div className="flex gap-2 justify-end">
-        <button type="button" onClick={onCancel} className="px-3 py-2 rounded border">Cancel</button>
-        <button type="submit" className="px-3 py-2 rounded bg-black text-white">Save</button>
+
+      <textarea
+        className="border rounded-lg p-2"
+        placeholder="Notes"
+        aria-label="Notes"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={3}
+      />
+
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={saving || !company.trim() || !role.trim()}
+          className="px-6 py-2 rounded-xl bg-black text-white disabled:opacity-50 font-medium transition-opacity"
+        >
+          {saving ? 'Adding…' : 'Add Application'}
+        </button>
       </div>
     </form>
   );

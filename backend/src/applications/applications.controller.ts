@@ -1,39 +1,57 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
-import { ApplicationsService } from './applications.service';
-import { CreateApplicationDto } from './dto/create-application.dto';
-import { UpdateApplicationDto } from './dto/update-application.dto';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
+import {
+  ApplicationsService,
+  CreateApplicationDto,
+  UpdateApplicationDto,
+} from "./applications.service";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 
-@Controller('applications')
+@UseGuards(JwtAuthGuard)
+@Controller("applications")
 export class ApplicationsController {
-  constructor(private readonly service: ApplicationsService) {}
-
-  @Post()
-  create(@Body() dto: CreateApplicationDto) {
-    return this.service.create(dto);
-  }
+  constructor(private readonly svc: ApplicationsService) {}
 
   @Get()
-  findAll() {
-    return this.service.findAll();
+  async list(@Req() req: any) {
+    return this.svc.listForUser(req.user.sub);
   }
 
-  @Get('stats')
-  stats() {
-    return this.service.stats();
+  @Get("stats")
+  async stats(@Req() req: any) {
+    return this.svc.statsForUser(req.user.sub);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  @Get(":id")
+  async getOne(@Req() req: any, @Param("id") id: string) {
+    return this.svc.getForUser(req.user.sub, id);
   }
 
-  @Put(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateApplicationDto) {
-    return this.service.update(id, dto);
+  @Post()
+  async create(@Req() req: any, @Body() dto: CreateApplicationDto) {
+    return this.svc.createForUser(req.user.sub, dto);
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  @Patch(":id")
+  async update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateApplicationDto
+  ) {
+    return this.svc.updateForUser(req.user.sub, id, dto);
+  }
+
+  @Delete(":id")
+  async remove(@Req() req: any, @Param("id") id: string) {
+    return this.svc.deleteForUser(req.user.sub, id);
   }
 }
